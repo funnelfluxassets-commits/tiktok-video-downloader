@@ -1,0 +1,6 @@
+{
+  "name": "TokDownloader",
+  "description": "Download TikTok videos without watermark in Full HD MP4 or extract MP3 audio directly from any link with zero API keys required.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
