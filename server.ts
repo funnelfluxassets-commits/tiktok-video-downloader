@@ -1,5 +1,29 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
+import { initializeApp, cert } from 'firebase-admin';
+import { getFirestore, Firestore } from 'firebase-admin/firestore';
+
+// Initialize Firebase Admin SDK if service account is provided
+let db: Firestore | null = null;
+try {
+  const serviceAccountEnv = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (serviceAccountEnv) {
+    const serviceAccount = JSON.parse(serviceAccountEnv);
+    if (serviceAccount.private_key) {
+      serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+    }
+    initializeApp({
+      credential: cert(serviceAccount),
+    });
+    db = getFirestore();
+    console.log('--- Firebase Firestore: INITIALIZED ---');
+  } else {
+    console.warn('--- Firebase Firestore: NO CREDENTIALS FOUND (using in-memory fallback) ---');
+  }
+} catch (err) {
+  console.error('--- Firebase Firestore Initialization Error:', err);
+}
 
 const app = express();
 app.use(express.json());
@@ -458,7 +482,7 @@ app.use(express.json());
   const registeredUsers = new Map<string, { email: string; name?: string; createdAt: number }>();
 
   // API 5: Register / Sign In User
-  app.post('/api/auth/register', (req, res) => {
+  app.post('/api/auth/register', async (req, res) => {
     try {
       const { email, name } = req.body;
       if (!email || typeof email !== 'string' || !email.includes('@')) {
@@ -466,25 +490,43 @@ app.use(express.json());
       }
 
       const normalizedEmail = email.trim().toLowerCase();
-      const existing = registeredUsers.get(normalizedEmail);
-      if (existing) {
-        return res.json({ success: true, user: existing, message: 'Welcome back!' });
+
+      if (db) {
+        const userRef = db.collection('users').doc(normalizedEmail);
+        const docSnap = await userRef.get();
+        if (docSnap.exists) {
+          const existingUser = docSnap.data();
+          return res.json({ success: true, user: existingUser, message: 'Welcome back!' });
+        }
+
+        const newUser = {
+          email: normalizedEmail,
+          name: typeof name === 'string' && name.trim() ? name.trim() : normalizedEmail.split('@')[0],
+          createdAt: Date.now(),
+        };
+        await userRef.set(newUser);
+        return res.json({ success: true, user: newUser, message: 'Account created successfully!' });
+      } else {
+        const existing = registeredUsers.get(normalizedEmail);
+        if (existing) {
+          return res.json({ success: true, user: existing, message: 'Welcome back!' });
+        }
+
+        const newUser = {
+          email: normalizedEmail,
+          name: typeof name === 'string' && name.trim() ? name.trim() : normalizedEmail.split('@')[0],
+          createdAt: Date.now(),
+        };
+        registeredUsers.set(normalizedEmail, newUser);
+        return res.json({ success: true, user: newUser, message: 'Account created successfully!' });
       }
-
-      const newUser = {
-        email: normalizedEmail,
-        name: typeof name === 'string' && name.trim() ? name.trim() : normalizedEmail.split('@')[0],
-        createdAt: Date.now(),
-      };
-      registeredUsers.set(normalizedEmail, newUser);
-
-      return res.json({ success: true, user: newUser, message: 'Account created successfully!' });
     } catch (err: any) {
+      console.error('Registration error:', err);
       return res.status(500).json({ error: err?.message || 'Failed to register' });
     }
   });
 
-  app.post('/api/auth/login', (req, res) => {
+  app.post('/api/auth/login', async (req, res) => {
     try {
       const { email } = req.body;
       if (!email || typeof email !== 'string' || !email.includes('@')) {
@@ -492,19 +534,38 @@ app.use(express.json());
       }
 
       const normalizedEmail = email.trim().toLowerCase();
-      let user = registeredUsers.get(normalizedEmail);
-      if (!user) {
-        // Auto-create on first sign in
-        user = {
-          email: normalizedEmail,
-          name: normalizedEmail.split('@')[0],
-          createdAt: Date.now(),
-        };
-        registeredUsers.set(normalizedEmail, user);
-      }
 
-      return res.json({ success: true, user, message: 'Logged in successfully!' });
+      if (db) {
+        const userRef = db.collection('users').doc(normalizedEmail);
+        const docSnap = await userRef.get();
+        let user;
+        if (docSnap.exists) {
+          user = docSnap.data();
+        } else {
+          // Auto-create on first sign in
+          user = {
+            email: normalizedEmail,
+            name: normalizedEmail.split('@')[0],
+            createdAt: Date.now(),
+          };
+          await userRef.set(user);
+        }
+        return res.json({ success: true, user, message: 'Logged in successfully!' });
+      } else {
+        let user = registeredUsers.get(normalizedEmail);
+        if (!user) {
+          // Auto-create on first sign in
+          user = {
+            email: normalizedEmail,
+            name: normalizedEmail.split('@')[0],
+            createdAt: Date.now(),
+          };
+          registeredUsers.set(normalizedEmail, user);
+        }
+        return res.json({ success: true, user, message: 'Logged in successfully!' });
+      }
     } catch (err: any) {
+      console.error('Login error:', err);
       return res.status(500).json({ error: err?.message || 'Failed to login' });
     }
   });
