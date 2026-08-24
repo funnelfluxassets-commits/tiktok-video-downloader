@@ -573,14 +573,7 @@ app.use(express.json());
     }
   });
 
-  app.get('/api/auth/debug', (req, res) => {
-    return res.json({
-      dbInitialized: db !== null,
-      initError: initError,
-      hasEnvVar: process.env.FIREBASE_SERVICE_ACCOUNT !== undefined,
-      envVarLength: process.env.FIREBASE_SERVICE_ACCOUNT ? process.env.FIREBASE_SERVICE_ACCOUNT.length : 0
-    });
-  });
+
 
   // Vite middleware and port listening for local development / production (not on Vercel)
   if (!process.env.VERCEL) {
