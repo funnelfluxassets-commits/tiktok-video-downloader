@@ -6,6 +6,7 @@ import { getFirestore, Firestore } from 'firebase-admin/firestore';
 
 // Initialize Firebase Admin SDK if service account is provided
 let db: Firestore | null = null;
+let initError: string | null = null;
 try {
   const serviceAccountEnv = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (serviceAccountEnv) {
@@ -19,9 +20,11 @@ try {
     db = getFirestore();
     console.log('--- Firebase Firestore: INITIALIZED ---');
   } else {
+    initError = "No FIREBASE_SERVICE_ACCOUNT environment variable found.";
     console.warn('--- Firebase Firestore: NO CREDENTIALS FOUND (using in-memory fallback) ---');
   }
-} catch (err) {
+} catch (err: any) {
+  initError = err?.message || String(err);
   console.error('--- Firebase Firestore Initialization Error:', err);
 }
 
@@ -568,6 +571,15 @@ app.use(express.json());
       console.error('Login error:', err);
       return res.status(500).json({ error: err?.message || 'Failed to login' });
     }
+  });
+
+  app.get('/api/auth/debug', (req, res) => {
+    return res.json({
+      dbInitialized: db !== null,
+      initError: initError,
+      hasEnvVar: process.env.FIREBASE_SERVICE_ACCOUNT !== undefined,
+      envVarLength: process.env.FIREBASE_SERVICE_ACCOUNT ? process.env.FIREBASE_SERVICE_ACCOUNT.length : 0
+    });
   });
 
   // Vite middleware and port listening for local development / production (not on Vercel)
