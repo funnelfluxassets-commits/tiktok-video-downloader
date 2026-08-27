@@ -481,6 +481,108 @@ app.use(express.json());
     });
   });
 
+  // ─── Signup Notification System ─────────────────────────────────────────────
+  const NOTIFICATION_EMAIL = process.env.NOTIFICATION_EMAIL || 'funnelflux.assets@gmail.com';
+
+  async function sendSignupNotification(params: {
+    appName: string;
+    email: string;
+    name?: string;
+    req?: express.Request;
+  }) {
+    const { appName, email, name, req } = params;
+    const userName = name || email.split('@')[0];
+    const dateStr = new Date().toUTCString();
+
+    const country = (req?.headers['x-vercel-ip-country'] as string) || (req?.headers['cf-ipcountry'] as string) || 'Global';
+    const city = (req?.headers['x-vercel-ip-city'] as string) || '';
+    const locationStr = city ? `${city}, ${country}` : String(country);
+    const userAgent = (req?.headers['user-agent'] as string) || '';
+
+    let deviceType = 'Desktop';
+    if (/iPhone|iPad|iPod/i.test(userAgent)) deviceType = 'Apple iOS (iPhone/iPad)';
+    else if (/Android/i.test(userAgent)) deviceType = 'Android Mobile';
+    else if (/Macintosh|Mac OS X/i.test(userAgent)) deviceType = 'Apple Mac';
+    else if (/Windows/i.test(userAgent)) deviceType = 'Windows PC';
+
+    console.log(`[Notification] 🚀 New Signup on ${appName}: ${email} (${userName}) from ${locationStr} [${deviceType}]`);
+
+    // 1. Resend Transactional Email (Free 3,000 emails/month)
+    const resendApiKey = process.env.RESEND_API_KEY;
+    if (resendApiKey) {
+      try {
+        const htmlBody = `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+            <div style="background: linear-gradient(135deg, #e11d48, #be123c); padding: 24px 32px; color: #ffffff;">
+              <h2 style="margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.5px;">🚀 New User Registered</h2>
+              <p style="margin: 4px 0 0; font-size: 14px; opacity: 0.9;">${appName} • ${dateStr}</p>
+            </div>
+            <div style="padding: 24px 32px;">
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                  <td style="padding: 10px 0; color: #71717a; font-size: 13px; font-weight: 600; width: 130px;">Full Name</td>
+                  <td style="padding: 10px 0; color: #18181b; font-size: 14px; font-weight: 700;">${userName}</td>
+                </tr>
+                <tr style="border-top: 1px solid #f4f4f5;">
+                  <td style="padding: 10px 0; color: #71717a; font-size: 13px; font-weight: 600;">Email Address</td>
+                  <td style="padding: 10px 0; color: #18181b; font-size: 14px; font-weight: 700;"><a href="mailto:${email}" style="color: #e11d48; text-decoration: none;">${email}</a></td>
+                </tr>
+                <tr style="border-top: 1px solid #f4f4f5;">
+                  <td style="padding: 10px 0; color: #71717a; font-size: 13px; font-weight: 600;">Application</td>
+                  <td style="padding: 10px 0; color: #e11d48; font-size: 14px; font-weight: 700;">${appName}</td>
+                </tr>
+                <tr style="border-top: 1px solid #f4f4f5;">
+                  <td style="padding: 10px 0; color: #71717a; font-size: 13px; font-weight: 600;">Location</td>
+                  <td style="padding: 10px 0; color: #18181b; font-size: 14px;">${locationStr}</td>
+                </tr>
+                <tr style="border-top: 1px solid #f4f4f5;">
+                  <td style="padding: 10px 0; color: #71717a; font-size: 13px; font-weight: 600;">Device / OS</td>
+                  <td style="padding: 10px 0; color: #18181b; font-size: 14px;">${deviceType}</td>
+                </tr>
+              </table>
+              <div style="margin-top: 24px; text-align: center;">
+                <a href="https://console.firebase.google.com" style="display: inline-block; background: #18181b; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 10px; font-size: 13px; font-weight: 600;">Open Firebase Dashboard →</a>
+              </div>
+            </div>
+          </div>
+        `;
+
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${resendApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            from: `${appName} <onboarding@resend.dev>`,
+            to: [NOTIFICATION_EMAIL],
+            subject: `🚀 New User: ${userName} on ${appName}`,
+            html: htmlBody,
+          }),
+        });
+        console.log(`[Notification] Email notification dispatched to ${NOTIFICATION_EMAIL}`);
+      } catch (e: any) {
+        console.warn('[Notification] Resend email error:', e?.message);
+      }
+    }
+
+    // 2. Webhook Notification (Discord / Slack / Formspree)
+    const webhookUrl = process.env.NOTIFICATION_WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL || process.env.SLACK_WEBHOOK_URL;
+    if (webhookUrl) {
+      try {
+        await fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: `🚀 **New User Registered on ${appName}!**\n👤 **Name:** ${userName}\n✉️ **Email:** ${email}\n🌍 **Location:** ${locationStr}\n💻 **Device:** ${deviceType}\n⏰ **Time:** ${dateStr}`,
+          }),
+        });
+      } catch (e: any) {
+        console.warn('[Notification] Webhook error:', e?.message);
+      }
+    }
+  }
+
   // In-memory registered users store
   const registeredUsers = new Map<string, { email: string; name?: string; createdAt: number }>();
 
@@ -493,6 +595,7 @@ app.use(express.json());
       }
 
       const normalizedEmail = email.trim().toLowerCase();
+      const cleanName = typeof name === 'string' && name.trim() ? name.trim() : normalizedEmail.split('@')[0];
 
       if (db) {
         const userRef = db.collection('users').doc(normalizedEmail);
@@ -504,10 +607,12 @@ app.use(express.json());
 
         const newUser = {
           email: normalizedEmail,
-          name: typeof name === 'string' && name.trim() ? name.trim() : normalizedEmail.split('@')[0],
+          name: cleanName,
           createdAt: Date.now(),
         };
         await userRef.set(newUser);
+
+        sendSignupNotification({ appName: 'TokDownloader', email: normalizedEmail, name: cleanName, req }).catch(() => {});
         return res.json({ success: true, user: newUser, message: 'Account created successfully!' });
       } else {
         const existing = registeredUsers.get(normalizedEmail);
@@ -517,10 +622,12 @@ app.use(express.json());
 
         const newUser = {
           email: normalizedEmail,
-          name: typeof name === 'string' && name.trim() ? name.trim() : normalizedEmail.split('@')[0],
+          name: cleanName,
           createdAt: Date.now(),
         };
         registeredUsers.set(normalizedEmail, newUser);
+
+        sendSignupNotification({ appName: 'TokDownloader', email: normalizedEmail, name: cleanName, req }).catch(() => {});
         return res.json({ success: true, user: newUser, message: 'Account created successfully!' });
       }
     } catch (err: any) {
