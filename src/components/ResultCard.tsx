@@ -22,6 +22,7 @@ import {
   FileEdit,
   RotateCcw,
   Tag,
+  Loader2,
 } from 'lucide-react';
 
 interface ResultCardProps {
@@ -34,6 +35,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onDownloadAttemp
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [copiedCaption, setCopiedCaption] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloadSuccessId, setDownloadSuccessId] = useState<string | null>(null);
   const [activeSlideIndex, setActiveSlideIndex] = useState(0);
   const [selectedDownloadId, setSelectedDownloadId] = useState<string | null>(
     () => result.downloads.find((d) => d.recommend)?.id || result.downloads[0]?.id || null
@@ -136,11 +138,13 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onDownloadAttemp
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 2000);
+      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 3000);
+
+      setDownloadSuccessId(option.id);
+      setTimeout(() => setDownloadSuccessId(null), 3000);
     } catch (err: any) {
-      console.error('Download error:', err);
-      setDownloadError(err?.message || 'Failed to download file. Please try another format.');
-      setTimeout(() => setDownloadError(null), 5000);
+      console.error('Download failed:', err);
+      setDownloadError(err?.message || 'Download failed. Please try again.');
     } finally {
       setDownloadingId(null);
     }
@@ -443,75 +447,98 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onDownloadAttemp
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 gap-2 sm:gap-2.5">
-                {result.downloads.map((opt, index) => {
-                  const isDownloading = downloadingId === opt.id;
-                  const isTopCard = index === 0;
+              <div className="space-y-2.5 max-h-[340px] overflow-y-auto pr-1">
+                {result.downloads.map((opt) => {
                   const isSelected = selectedDownloadId === opt.id;
+                  const isDownloading = downloadingId === opt.id;
+                  const isSuccess = downloadSuccessId === opt.id;
 
                   return (
-                    <button
+                    <div
                       key={opt.id}
-                      id={`download-opt-${opt.id}`}
-                      onClick={() => {
-                        setSelectedDownloadId(opt.id);
-                        handleTriggerDownload(opt);
-                      }}
-                      disabled={isDownloading}
-                      className={`w-full flex items-center justify-between p-2.5 sm:p-3.5 rounded-xl text-left transition-all cursor-pointer group bg-zinc-50 dark:bg-zinc-800/80 text-zinc-800 dark:text-zinc-200 ${
+                      onClick={() => setSelectedDownloadId(opt.id)}
+                      className={`px-3.5 py-3 sm:px-4 sm:py-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 h-[72px] sm:h-[76px] ${
                         isSelected
-                          ? 'border-2 border-rose-600 dark:border-rose-500 shadow-md shadow-rose-600/10'
-                          : 'border border-zinc-200 dark:border-zinc-700 hover:border-rose-600 dark:hover:border-rose-500'
+                          ? 'border-rose-500 bg-rose-50/50 dark:bg-rose-950/20 ring-2 ring-rose-500/20'
+                          : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/40'
                       }`}
                     >
-                      <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 pr-1.5 sm:pr-2">
-                        {/* Grey box with thin red outline and white icon */}
-                        <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-zinc-700 dark:bg-zinc-700 border border-rose-600 dark:border-rose-500 text-white flex items-center justify-center shrink-0 shadow-sm group-hover:scale-105 transition-transform">
-                          {opt.type.includes('video') ? (
-                            <FileVideo className="w-4 h-4 sm:w-5 sm:h-5" />
-                          ) : opt.type === 'audio' ? (
-                            <FileAudio className="w-4 h-4 sm:w-5 sm:h-5" />
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                            opt.type === 'audio'
+                              ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400'
+                              : opt.type === 'cover'
+                              ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
+                              : 'bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400'
+                          }`}
+                        >
+                          {opt.type === 'audio' ? (
+                            <FileAudio className="w-4.5 h-4.5" />
+                          ) : opt.type === 'cover' ? (
+                            <ImageIcon className="w-4.5 h-4.5" />
                           ) : (
-                            <ImageIcon className="w-4 h-4 sm:w-5 sm:h-5" />
+                            <FileVideo className="w-4.5 h-4.5" />
                           )}
                         </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap mb-0.5">
-                            <span className="text-xs sm:text-sm font-bold text-zinc-900 dark:text-white truncate">
+
+                        <div className="min-w-0 flex-1 flex flex-col justify-center">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-bold text-xs sm:text-sm text-zinc-900 dark:text-white truncate">
                               {opt.label}
                             </span>
                             {opt.badge && (
                               <span
-                                className={`text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded tracking-wide ${
+                                className={`text-[9px] sm:text-[10px] font-extrabold px-1.5 sm:px-2 py-0.5 rounded-full shrink-0 ${
                                   opt.recommend
-                                    ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60'
-                                    : opt.type === 'video_watermark'
-                                    ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60'
-                                    : 'bg-zinc-200/80 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border border-zinc-300/60 dark:border-zinc-600'
+                                    ? 'bg-gradient-to-r from-rose-500 to-pink-600 text-white'
+                                    : 'bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300'
                                 }`}
                               >
-                                {opt.badge}
-                              </span>
-                            )}
-                            {opt.sizeFormatted && (
-                              <span className="text-[9px] sm:text-[10px] font-semibold px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
-                                {opt.sizeFormatted}
+                                {opt.recommend ? 'RECOMMENDED' : opt.badge}
                               </span>
                             )}
                           </div>
-                          <p className="text-[10px] sm:text-xs truncate text-zinc-500 dark:text-zinc-400">
+                          <p className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate mt-0.5">
                             {opt.description || opt.quality}
                           </p>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
-                        <div className="inline-flex items-center gap-1 sm:gap-1.5 text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-lg bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 shadow-sm transition-all group-hover:bg-gradient-to-r group-hover:from-pink-600 group-hover:to-rose-600 group-hover:text-white">
-                          <Download className="w-3.5 h-3.5" />
-                          <span className="hidden xs:inline">{isDownloading ? 'Saving...' : 'Download'}</span>
-                        </div>
-                      </div>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedDownloadId(opt.id);
+                          handleTriggerDownload(opt);
+                        }}
+                        disabled={isDownloading}
+                        className={`min-w-[84px] sm:min-w-[92px] h-9 sm:h-10 px-3.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-wait ${
+                          isSuccess
+                            ? 'bg-emerald-500 text-white'
+                            : isSelected || opt.recommend
+                            ? 'bg-gradient-to-r from-rose-500 via-pink-500 to-rose-600 hover:opacity-90 text-white shadow-md shadow-rose-500/25'
+                            : 'bg-white dark:bg-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-600 text-zinc-800 dark:text-zinc-100 border border-zinc-200 dark:border-zinc-600'
+                        }`}
+                      >
+                        {isDownloading ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Saving...</span>
+                          </>
+                        ) : isSuccess ? (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Saved</span>
+                          </>
+                        ) : (
+                          <>
+                            <Download className="w-3.5 h-3.5" />
+                            <span>Save</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   );
                 })}
               </div>
