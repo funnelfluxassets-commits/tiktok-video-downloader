@@ -25,6 +25,8 @@ import {
   Loader2,
 } from 'lucide-react';
 
+const CF_STREAM_PROXY = 'https://stream-proxy.virtualadvertising-bh.workers.dev';
+
 interface ResultCardProps {
   result: TikTokMediaResult;
   onDownloadAttempt?: () => boolean;
@@ -112,9 +114,18 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onDownloadAttemp
       }
 
       const safeTitle = `${baseName}${suffix}`;
-      const downloadEndpoint = `/api/proxy-download?url=${encodeURIComponent(option.url)}&filename=${encodeURIComponent(safeTitle)}&ext=${option.extension}`;
-      
-      const response = await fetch(downloadEndpoint);
+      const cfEndpoint = `${CF_STREAM_PROXY}/?url=${encodeURIComponent(option.url)}&filename=${encodeURIComponent(safeTitle)}&ext=${option.extension}`;
+      const fallbackEndpoint = `/api/proxy-download?url=${encodeURIComponent(option.url)}&filename=${encodeURIComponent(safeTitle)}&ext=${option.extension}`;
+
+      let response: Response;
+      try {
+        response = await fetch(cfEndpoint);
+        if (!response.ok) throw new Error(`Cloudflare returned status ${response.status}`);
+      } catch (cfErr) {
+        console.warn('[stream-proxy] Cloudflare failed, using Vercel fallback:', cfErr);
+        response = await fetch(fallbackEndpoint);
+      }
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
         throw new Error(errorData?.error || `Download failed with status ${response.status}`);
@@ -226,7 +237,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onDownloadAttemp
               </div>
             ) : isPlayingVideo && videoStreamUrl ? (
               <video
-                src={`/api/proxy-stream?url=${encodeURIComponent(videoStreamUrl)}`}
+                src={`${CF_STREAM_PROXY}/?url=${encodeURIComponent(videoStreamUrl)}&ext=mp4`}
                 controls
                 autoPlay
                 className="w-full h-full object-cover"
@@ -276,7 +287,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onDownloadAttemp
               </div>
               <audio
                 controls
-                src={`/api/proxy-stream?url=${encodeURIComponent(audioStreamUrl)}`}
+                src={`${CF_STREAM_PROXY}/?url=${encodeURIComponent(audioStreamUrl)}&ext=mp3`}
                 className="w-full h-7 sm:h-8"
               />
             </div>
@@ -559,8 +570,17 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onDownloadAttemp
                           const baseName = cleanForFilename(customFilename.trim()) || presetCreatorCaption;
                           const safeFilename = `${baseName}_photo_${i + 1}`;
                           try {
-                            const downloadEndpoint = `/api/proxy-download?url=${encodeURIComponent(imgUrl)}&filename=${encodeURIComponent(safeFilename)}&ext=jpg`;
-                            const response = await fetch(downloadEndpoint);
+                            const cfEndpoint = `${CF_STREAM_PROXY}/?url=${encodeURIComponent(imgUrl)}&filename=${encodeURIComponent(safeFilename)}&ext=jpg`;
+                            const fallbackEndpoint = `/api/proxy-download?url=${encodeURIComponent(imgUrl)}&filename=${encodeURIComponent(safeFilename)}&ext=jpg`;
+
+                            let response: Response;
+                            try {
+                              response = await fetch(cfEndpoint);
+                              if (!response.ok) throw new Error('CF failed');
+                            } catch {
+                              response = await fetch(fallbackEndpoint);
+                            }
+
                             if (!response.ok) throw new Error('Download failed');
                             const blob = await response.blob();
                             const blobUrl = window.URL.createObjectURL(blob);
