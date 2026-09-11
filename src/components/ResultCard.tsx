@@ -25,8 +25,6 @@ import {
   Loader2,
 } from 'lucide-react';
 
-const CF_STREAM_PROXY = 'https://stream-proxy.virtualadvertising-bh.workers.dev';
-
 interface ResultCardProps {
   result: TikTokMediaResult;
   onDownloadAttempt?: () => boolean;
@@ -114,15 +112,28 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onDownloadAttemp
       }
 
       const safeTitle = `${baseName}${suffix}`;
-      const cfEndpoint = `${CF_STREAM_PROXY}/?url=${encodeURIComponent(option.url)}&filename=${encodeURIComponent(safeTitle)}&ext=${option.extension}`;
       const fallbackEndpoint = `/api/proxy-download?url=${encodeURIComponent(option.url)}&filename=${encodeURIComponent(safeTitle)}&ext=${option.extension}`;
 
-      let response: Response;
+      let response: Response | null = null;
+
+      // 1. Try direct in-browser download (0 MB server bandwidth)
       try {
-        response = await fetch(cfEndpoint);
-        if (!response.ok) throw new Error(`Cloudflare returned status ${response.status}`);
-      } catch (cfErr) {
-        console.warn('[stream-proxy] Cloudflare failed, using Vercel fallback:', cfErr);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3500);
+        const directRes = await fetch(option.url, {
+          signal: controller.signal,
+          headers: { Accept: '*/*' },
+        });
+        clearTimeout(timeoutId);
+        if (directRes.ok) {
+          response = directRes;
+        }
+      } catch (directErr) {
+        console.info('[download] Direct fetch bypassed/blocked, switching to Vercel backup:', directErr);
+      }
+
+      // 2. If direct fetch fails or is blocked by CORS, use Vercel proxy fallback
+      if (!response) {
         response = await fetch(fallbackEndpoint);
       }
 
@@ -237,10 +248,17 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onDownloadAttemp
               </div>
             ) : isPlayingVideo && videoStreamUrl ? (
               <video
-                src={`${CF_STREAM_PROXY}/?url=${encodeURIComponent(videoStreamUrl)}&ext=mp4`}
+                src={videoStreamUrl}
                 controls
                 autoPlay
                 className="w-full h-full object-cover"
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  if (!target.dataset.fallback) {
+                    target.dataset.fallback = '1';
+                    target.src = `/api/proxy-stream?url=${encodeURIComponent(videoStreamUrl)}`;
+                  }
+                }}
               />
             ) : (
               <div className="relative w-full h-full">
@@ -287,7 +305,14 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onDownloadAttemp
               </div>
               <audio
                 controls
-                src={`${CF_STREAM_PROXY}/?url=${encodeURIComponent(audioStreamUrl)}&ext=mp3`}
+                src={audioStreamUrl}
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  if (!target.dataset.fallback) {
+                    target.dataset.fallback = '1';
+                    target.src = `/api/proxy-stream?url=${encodeURIComponent(audioStreamUrl)}`;
+                  }
+                }}
                 className="w-full h-7 sm:h-8"
               />
             </div>
@@ -570,14 +595,20 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onDownloadAttemp
                           const baseName = cleanForFilename(customFilename.trim()) || presetCreatorCaption;
                           const safeFilename = `${baseName}_photo_${i + 1}`;
                           try {
-                            const cfEndpoint = `${CF_STREAM_PROXY}/?url=${encodeURIComponent(imgUrl)}&filename=${encodeURIComponent(safeFilename)}&ext=jpg`;
                             const fallbackEndpoint = `/api/proxy-download?url=${encodeURIComponent(imgUrl)}&filename=${encodeURIComponent(safeFilename)}&ext=jpg`;
 
-                            let response: Response;
+                            let response: Response | null = null;
                             try {
-                              response = await fetch(cfEndpoint);
-                              if (!response.ok) throw new Error('CF failed');
+                              const controller = new AbortController();
+                              const timer = setTimeout(() => controller.abort(), 3000);
+                              const directRes = await fetch(imgUrl, { signal: controller.signal });
+                              clearTimeout(timer);
+                              if (directRes.ok) response = directRes;
                             } catch {
+                              // direct fetch failed, fallback below
+                            }
+
+                            if (!response) {
                               response = await fetch(fallbackEndpoint);
                             }
 
